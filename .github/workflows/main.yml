@@ -1,4 +1,4 @@
-name: Deploy Locally with Self-Hosted Runner + SonarQube
+name: Deploy Locally with Self-Hosted Runner and SonarQube
 
 on:
   push:
@@ -12,12 +12,13 @@ env:
   DB_NAME: 'ecommerce_lp2_prod'
   DB_USER: 'root'
   DB_PASSWORD: 'admin123'
-  SONAR_HOST_URL: 'http://localhost:9000'        # Cambia si tu SonarQube está en otra URL
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}        # Se asume que creaste este secreto
+  SONAR_HOST_URL: 'http://localhost:9000'
+  SONAR_PROJECT_KEY: 'ecommerce_prueva'
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
-  build-analyze-deploy:
-    name: Analyze, Build, and Deploy
+  build-analyze-and-deploy:
+    name: Analyze with SonarQube & Deploy with Docker
     runs-on: self-hosted
 
     steps:
@@ -31,9 +32,16 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: SonarQube Scan
+      - name: Cache SonarQube packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Run SonarQube Analysis
         run: mvn -B verify sonar:sonar \
-          -Dsonar.projectKey=ecommerce_prueva \
+          -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }} \
           -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
           -Dsonar.login=${{ env.SONAR_TOKEN }}
 
@@ -45,15 +53,15 @@ jobs:
           echo "✅ Iniciando despliegue en el runner local..."
           cd docker
           echo "🧹 Limpiando despliegue anterior..."
-          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || echo "⚠️ No hay despliegue previo"
-          echo "🏗️ Construyendo servicios..."
+          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || echo "⚠️ No se encontró un despliegue anterior para limpiar."
+          echo "🏗️ Construyendo y levantando los servicios..."
           docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} up -d --build
-          echo "⏳ Esperando 30 segundos para DB..."
+          echo "⏳ Esperando 30 segundos para que la DB se estabilice..."
           sleep 30
-          echo "💾 Inicializando base de datos..."
+          echo "💾 Inicializando base de datos desde init.sql..."
           cat ../sql/init.sql | docker exec -i ${{ env.DB_CONTAINER_NAME }} mysql -u${{ env.DB_USER }} -p${{ env.DB_PASSWORD }} ${{ env.DB_NAME }}
-          echo "🔍 Estado de contenedores:"
+          echo "🔍 Verificando estado de los contenedores..."
           docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} ps
-          echo "🗒️ Últimos logs de la app:"
+          echo "🗒️ Mostrando los últimos logs de la aplicación:"
           docker logs --tail 100 ${{ env.APP_CONTAINER_NAME }}
-          echo "🎉 ✓ Despliegue y análisis completados."
+          echo "🎉 ✓ Despliegue local completado exitosamente."
